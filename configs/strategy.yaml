@@ -1,0 +1,16 @@
+strategy: rsi_bb_template
+params:
+  rsi_period: 14
+  rsi_oversold: 30
+  rsi_overbought: 70
+  bb_period: 20
+  bb_dev: 2.0
+  stake: 100
+risk:
+  max_position_pct: 0.1
+  max_drawdown_pct: 0.15
+  stop_loss_pct: 0.02
+execution:
+  mode: paper  # paper | live
+  broker: binance
+  sandbox: true

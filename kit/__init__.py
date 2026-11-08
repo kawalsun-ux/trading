@@ -1,0 +1,1 @@
+"""Zero-dependency AI trading system kit (stdlib only)."""
