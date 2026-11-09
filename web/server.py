@@ -1,4 +1,4 @@
-"""Zero-dep web UI backend for the trading kit (stdlib only)."""
+"""Apex Quant — web UI backend (stdlib only)."""
 import json, os, sys, time, threading, urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -277,7 +277,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     store.init()
     httpd = HTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"Trading UI server running at http://localhost:{PORT}")
+    print(f"Apex Quant UI server running at http://localhost:{PORT}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

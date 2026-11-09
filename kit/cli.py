@@ -1,4 +1,4 @@
-"""CLI for the zero-dep trading kit."""
+"""Apex Quant CLI (zero-dep)."""
 import argparse, json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from kit import connector, safety, pool, backtest, report, store, dashboard

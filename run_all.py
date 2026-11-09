@@ -6,7 +6,7 @@ from kit import safety, backtest, report, store, dashboard, pool
 
 def main():
     print("=" * 60)
-    print("TRADING RESEARCH & EXECUTION PIPELINE (test mode)")
+    print("APEX QUANT — RESEARCH & EXECUTION PIPELINE (test mode)")
     print("=" * 60)
 
     # 1. Safety check on a mock trade
@@ -41,7 +41,7 @@ def main():
     # map trade indices to price indices
     e_idx = [t[1] for t in res["trades"] if t[0] == 'buy']
     x_idx = [t[1] for t in res["trades"] if t[0] == 'sell']
-    html = dashboard.render("Trading Research Dashboard", prices, entries=e_idx, exits=x_idx)
+    html = dashboard.render("Apex Quant Dashboard", prices, entries=e_idx, exits=x_idx)
     out = os.path.join(os.path.dirname(__file__), "reports", "dashboard.html")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:

@@ -1,4 +1,4 @@
-# Trading R&D Environment
+# Apex Quant
 
 Multi-language (Python-first) research & development workspace for trading
 strategies and market execution.
