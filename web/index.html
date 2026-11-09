@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Zero-Dep Trading Kit — Web UI</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:16px}
+h1{font-size:20px;margin-bottom:12px;color:#38bdf8}
+h2{font-size:16px;margin:12px 0 6px;color:#7dd3fc}
+.tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.tab{padding:8px 14px;background:#1e293b;border:1px solid #334155;border-radius:6px;cursor:pointer;color:#cbd5e1}
+.tab.active{background:#0ea5e9;color:#fff;border-color:#0ea5e9}
+.panel{display:none;background:#1e293b;padding:16px;border-radius:8px;border:1px solid #334155}
+.panel.active{display:block}
+.card{background:#0f172a;padding:12px;border-radius:6px;margin:8px 0;border:1px solid #334155}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
+label{font-size:13px;color:#94a3b8}
+input,select{background:#0f172a;color:#e2e8f0;border:1px solid #475569;padding:6px 8px;border-radius:4px;font-size:13px}
+button{background:#0ea5e9;color:#fff;border:none;padding:7px 14px;border-radius:4px;cursor:pointer;font-size:13px}
+button:hover{background:#0284c7}
+button.danger{background:#dc2626}
+button.danger:hover{background:#b91c1c}
+.status{padding:8px 12px;border-radius:4px;margin:8px 0;font-size:13px}
+.ok{background:#14532d;color:#bbf7d0}
+.err{background:#7f1d1d;color:#fecaca}
+.warn{background:#78350f;color:#fef3c7}
+canvas{background:#0f172a;border:1px solid #334155;border-radius:6px;margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+th,td{padding:6px 8px;border-bottom:1px solid #334155;text-align:left}
+th{color:#94a3b8}
+pre{background:#0f172a;padding:10px;border-radius:4px;font-size:12px;overflow:auto;max-height:200px;margin-top:8px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1>Zero-Dep Trading Kit — Web UI</h1>
+<div class="tabs">
+  <div class="tab active" data-panel="arb">Arbitrage</div>
+  <div class="tab" data-panel="scalp">Scalping</div>
+  <div class="tab" data-panel="test">Testing</div>
+  <div class="tab" data-panel="deploy">Deployment</div>
+  <div class="tab" data-panel="log">Trade Log</div>
+<div class="tab" data-panel="live">Live Feed</div>
+<div class="tab" data-panel="binance">Binance WS</div>
+<div class="tab" data-panel="london">London Edge</div>
+<div class="tab" data-panel="orderbook">Order Book</div>
+</div>
+
+<!-- Arbitrage -->
+<div id="arb" class="panel active">
+  <h2>Arbitrage — Spread Detection</h2>
+  <div class="row">
+    <button onclick="refreshPools()">Refresh Prices</button>
+    <label>Min spread %: <input id="minSpread" type="number" step="0.01" value="0.1" style="width:80px"></label>
+  </div>
+  <div id="arbStatus" class="status ok">Ready</div>
+  <div class="card">
+    <table><thead><tr><th>Exchange</th><th>Price</th></tr></thead><tbody id="priceTable"></tbody></table>
+  </div>
+  <div class="card">
+    <div>Best buy: <span id="bestBuy">-</span> | Best sell: <span id="bestSell">-</span></div>
+    <div>Spread: <span id="spread">-</span> (<span id="spreadPct">-</span>%)</div>
+    <div>Profitable: <span id="profitable">-</span></div>
+  </div>
+  <h2>Execute Arbitrage (test mode)</h2>
+  <div class="row">
+    <label>Token: <input id="arbToken" value="TKN" style="width:80px"></label>
+    <label>Balance: <input id="arbBalance" type="number" value="10" style="width:80px"></label>
+    <label>Required: <input id="arbRequired" type="number" value="1" style="width:80px"></label>
+    <label>Expected price: <input id="arbExpected" type="number" value="100" style="width:80px"></label>
+    <label>Actual price: <input id="arbActual" type="number" value="100.3" style="width:80px"></label>
+    <button onclick="execArb()">Execute</button>
+  </div>
+  <div id="arbExecStatus" class="status ok"></div>
+  <h2>Live Order Book (from pool spread)</h2>
+  <button onclick="loadOrderBook()">Refresh Book</button>
+  <div class="card" id="orderBook"></div>
+</div>
+
+<!-- Scalping -->
+<div id="scalp" class="panel">
+  <h2>Scalping — Micro-Profit Strategy</h2>
+  <div class="grid">
+    <div class="card">
+      <label>Take profit %: <input id="tp" type="number" step="0.01" value="0.05" style="width:80px"></label><br>
+      <label>Stop loss %: <input id="sl" type="number" step="0.01" value="0.03" style="width:80px"></label><br>
+      <label>Max hold (bars): <input id="maxHold" type="number" value="5" style="width:80px"></label><br>
+      <label>Data points: <input id="scalpN" type="number" value="300" style="width:80px"></label><br>
+      <button onclick="runScalp()">Run Backtest</button>
+    </div>
+    <div class="card">
+      <div id="scalpMetrics" class="status ok">Run a backtest</div>
+      <canvas id="scalpChart" width="400" height="200"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Testing -->
+<div id="test" class="panel">
+  <h2>Testing — Backtest & Walk-Forward</h2>
+  <div class="row">
+    <label>Strategy:
+      <select id="stratSelect">
+        <option value="ma_crossover">MA Crossover</option>
+        <option value="rsi_bb">RSI + Bollinger</option>
+        <option value="momentum">Momentum</option>
+        <option value="mean_reversion">Mean Reversion (RSI)</option>
+        <option value="breakout">Breakout</option>
+        <option value="pairs">Pairs Trading</option>
+        <option value="scalp_micro">Scalping Micro</option>
+        <option value="arb_spread">Arb Spread</option>
+      </select>
+    </label>
+    <label>Data points: <input id="testN" type="number" value="200" style="width:80px"></label>
+    <button onclick="runBacktest()">Run Backtest</button>
+  </div>
+  <div id="testStatus" class="status ok"></div>
+  <div class="card">
+    <canvas id="testChart" width="860" height="260"></canvas>
+  </div>
+  <div class="card"><pre id="testMetrics"></pre></div>
+  <div class="card">
+    <h2>Walk-Forward Optimization</h2>
+    <p style="font-size:13px;color:#94a3b8">Run via CLI: <code>python backtests/walk_forward.py</code> — results saved to reports/walk_forward.csv</p>
+  </div>
+</div>
+
+<!-- Deployment -->
+<div id="deploy" class="panel">
+  <h2>Deployment — Config & Mode</h2>
+  <div class="card">
+    <div class="row">
+      <label>Mode:
+        <select id="mode">
+          <option value="paper">Paper (test)</option>
+          <option value="live">Live</option>
+        </select>
+      </label>
+      <label>Broker:
+        <select id="broker">
+          <option value="binance">Binance</option>
+          <option value="kraken">Kraken</option>
+          <option value="coinbase">Coinbase</option>
+        </select>
+      </label>
+      <label>Sandbox: <input id="sandbox" type="checkbox" checked></label>
+    </div>
+    <div class="row">
+      <label>Max position %: <input id="maxPos" type="number" step="0.01" value="0.1" style="width:80px"></label>
+      <label>Max drawdown %: <input id="maxDD" type="number" step="0.01" value="0.15" style="width:80px"></label>
+      <label>Stop loss %: <input id="stopLoss" type="number" step="0.01" value="0.02" style="width:80px"></label>
+      <label>Slippage %: <input id="slip" type="number" step="0.001" value="0.005" style="width:80px"></label>
+      <button onclick="saveConfig()">Save Config</button>
+    </div>
+    <div id="deployStatus" class="status ok"></div>
+  </div>
+  <div class="card">
+    <h2>Safety Check (manual)</h2>
+    <div class="row">
+      <label>Token: <input id="dToken" value="TKN" style="width:80px"></label>
+      <label>Known: <input id="dKnown" value="TKN" style="width:80px"></label>
+      <label>Balance: <input id="dBalance" type="number" value="10" style="width:80px"></label>
+      <label>Required: <input id="dRequired" type="number" value="1" style="width:80px"></label>
+      <label>Expected: <input id="dExpected" type="number" value="100" style="width:80px"></label>
+      <label>Actual: <input id="dActual" type="number" value="100.3" style="width:80px"></label>
+      <button onclick="runSafety()">Run Check</button>
+    </div>
+    <div id="safetyStatus" class="status ok"></div>
+  </div>
+</div>
+
+<!-- Binance WS -->
+<div id="binance" class="panel">
+  <h2>Live Binance WebSocket (BTC/USDT)</h2>
+  <div class="row">
+    <button onclick="connectBinance()">Connect</button>
+    <button class="danger" onclick="disconnectBinance()">Disconnect</button>
+    <span id="binanceStatus" class="status ok">Disconnected</span>
+  </div>
+  <div class="card"><pre id="binanceOut">Waiting...</pre></div>
+</div>
+
+<!-- London Edge -->
+<div id="london" class="panel">
+  <h2>London Session Edge Stream</h2>
+  <div class="row">
+    <button onclick="connectLondon()">Connect</button>
+    <button class="danger" onclick="disconnectLondon()">Disconnect</button>
+    <span id="londonStatus" class="status ok">Disconnected</span>
+  </div>
+  <div class="card"><table><thead><tr><th>Time</th><th>Signal</th><th>Strength</th></tr></thead><tbody id="londonTable"></tbody></table></div>
+</div>
+
+<!-- Live Feed -->
+<div id="live" class="panel">
+  <h2>Live WebSocket Price Feed</h2>
+  <div class="row">
+    <button onclick="connectWS()">Connect</button>
+    <button class="danger" onclick="disconnectWS()">Disconnect</button>
+    <span id="wsStatus" class="status ok">Disconnected</span>
+  </div>
+  <div class="card">
+    <table><thead><tr><th>Exchange</th><th>Price</th></tr></thead><tbody id="liveTable"></tbody></table>
+  </div>
+  <div class="card">
+    <h2>Live Execution (paper)</h2>
+    <div class="row">
+      <label>Symbol: <input id="liveSym" value="BTCUSDT" style="width:100px"></label>
+      <label>Side:
+        <select id="liveSide"><option value="buy">Buy</option><option value="sell">Sell</option></select>
+      </label>
+      <label>Qty: <input id="liveQty" type="number" value="0.001" style="width:80px"></label>
+      <button onclick="livePrice()">Get Price</button>
+      <button onclick="liveOrder()">Place Order</button>
+    </div>
+    <div id="liveExecStatus" class="status ok"></div>
+    <pre id="livePriceOut"></pre>
+  </div>
+</div>
+
+<!-- Order Book -->
+<div id="orderbook" class="panel">
+  <h2>Live Order Book (WebSocket)</h2>
+  <div class="row">
+    <button onclick="connectOB()">Connect</button>
+    <button class="danger" onclick="disconnectOB()">Disconnect</button>
+    <span id="obStatus" class="status ok">Disconnected</span>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <h3>Bids (buy)</h3>
+      <table><thead><tr><th>Price</th><th>Qty</th></tr></thead><tbody id="bidTable"></tbody></table>
+    </div>
+    <div class="card">
+      <h3>Asks (sell)</h3>
+      <table><thead><tr><th>Price</th><th>Qty</th></tr></thead><tbody id="askTable"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- Trade Log -->
+<div id="log" class="panel">
+  <h2>Trade Log</h2>
+  <button onclick="loadTrades()">Refresh</button>
+  <table><thead><tr><th>Time</th><th>Action</th><th>Token</th><th>Price</th><th>Units</th><th>Status</th><th>Note</th></tr></thead>
+  <tbody id="tradeTable"></tbody></table>
+</div>
+
+<script>
+const API = '';
+function $(id){return document.getElementById(id)}
+function showStatus(id,msg,cls){const el=$(id);el.textContent=msg;el.className='status '+cls}
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); $(t.dataset.panel).classList.add('active');
+}));
+
+async function api(path,opts){const r=await fetch(API+path,opts);return r.json();}
+
+// Arbitrage
+async function refreshPools(){
+  const d=await api('/api/pools');
+  const tb=$('priceTable'); tb.innerHTML='';
+  for(const [ex,px] of Object.entries(d.prices)){
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${ex}</td><td>${px}</td>`;
+    tb.appendChild(tr);
+  }
+  $('bestBuy').textContent=d.best_buy+' @ '+d.prices[d.best_buy];
+  $('bestSell').textContent=d.best_sell+' @ '+d.prices[d.best_sell];
+  $('spread').textContent=d.spread;
+  $('spreadPct').textContent=d.spread_pct;
+  $('profitable').textContent=d.profitable?'YES':'NO';
+  showStatus('arbStatus', d.profitable?'Profitable spread detected':'No profitable spread','ok');
+}
+async function execArb(){
+  const body={token:$('arbToken').value,balance:+$('arbBalance').value,required:+$('arbRequired').value,
+    expected:+$('arbExpected').value,actual:+$('arbActual').value,quote_ts:Date.now()/1000,known:[$('arbToken').value]};
+  const d=await api('/api/arb/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  showStatus('arbExecStatus', d.message, d.ok?'ok':'err');
+  loadTrades();
+}
+refreshPools();
+
+// Scalping
+function drawChart(canvasId, prices, markers){
+  const c=$(canvasId),ctx=c.getContext('2d');
+  ctx.clearRect(0,0,c.width,c.height);
+  const pad=30,w=c.width-pad*2,h=c.height-pad*2;
+  const mn=Math.min(...prices),mx=Math.max(...prices);
+  const sx=i=>pad+i*(w/(prices.length-1));
+  const sy=v=>pad+h-(v-mn)/(mx-mn)*h;
+  ctx.beginPath(); prices.forEach((v,i)=>{if(i===0)ctx.moveTo(sx(i),sy(v));else ctx.lineTo(sx(i),sy(v));});
+  ctx.strokeStyle='#38bdf8';ctx.lineWidth=1.5;ctx.stroke();
+  if(markers) markers.forEach(m=>{ctx.fillStyle=m.type==='buy'?'#22c55e':'#ef4444';ctx.beginPath();ctx.arc(sx(m.i),sy(prices[m.i]),4,0,Math.PI*2);ctx.fill();});
+}
+async function runScalp(){
+  const body={strategy:'scalp_micro',n:+$('scalpN').value};
+  const d=await api('/api/backtest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const m=d.metrics;
+  $('scalpMetrics').textContent=`Return: ${m.return_pct.toFixed(2)}% | Sharpe: ${m.sharpe.toFixed(3)} | MaxDD: ${m.max_drawdown_pct.toFixed(2)}% | Trades: ${m.num_trades} | WinRate: ${(m.win_rate*100).toFixed(1)}%`;
+  $('scalpMetrics').className='status '+(m.return_pct>=0?'ok':'err');
+  const markers=[];
+  (d.trades||[]).forEach(t=>{ markers.push({i:t[1],type:t[0]}); });
+  drawChart('scalpChart', d.prices, markers);
+}
+
+// Testing
+async function runBacktest(){
+  const body={strategy:$('stratSelect').value,n:+$('testN').value};
+  const d=await api('/api/backtest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const m=d.metrics;
+  $('testStatus').textContent=`${d.strategy}: Return ${m.return_pct.toFixed(2)}% | Sharpe ${m.sharpe.toFixed(3)} | MaxDD ${m.max_drawdown_pct.toFixed(2)}% | Trades ${m.num_trades}`;
+  $('testStatus').className='status '+(m.return_pct>=0?'ok':'err');
+  $('testMetrics').textContent=JSON.stringify(m,null,2);
+  const markers=[];
+  (d.trades||[]).forEach(t=>{ markers.push({i:t[1],type:t[0]}); });
+  drawChart('testChart', d.prices, markers);
+}
+
+// Deployment
+async function loadConfig(){
+  const c=await api('/api/config');
+  $('mode').value=c.mode; $('broker').value=c.broker; $('sandbox').checked=c.sandbox;
+  $('maxPos').value=c.max_position_pct; $('maxDD').value=c.max_drawdown_pct;
+  $('stopLoss').value=c.stop_loss_pct; $('slip').value=c.slippage_pct;
+}
+async function saveConfig(){
+  const body={mode:$('mode').value,broker:$('broker').value,sandbox:$('sandbox').checked,
+    max_position_pct:+$('maxPos').value,max_drawdown_pct:+$('maxDD').value,
+    stop_loss_pct:+$('stopLoss').value,slippage_pct:+$('slip').value};
+  const c=await api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  showStatus('deployStatus','Config saved (mode: '+c.mode+')','ok');
+}
+async function runSafety(){
+  const body={token:$('dToken').value,known:[$('dKnown').value],balance:+$('dBalance').value,
+    required:+$('dRequired').value,expected:+$('dExpected').value,actual:+$('dActual').value,
+    quote_ts:Date.now()/1000,max_slippage:+$('slip').value};
+  const d=await api('/api/safety/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  showStatus('safetyStatus', d.message, d.ok?'ok':'err');
+}
+loadConfig();
+
+// Trade log
+async function loadTrades(){
+  const d=await api('/api/trades');
+  const tb=$('tradeTable'); tb.innerHTML='';
+  (d.trades||[]).forEach(t=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${new Date(t[0]*1000).toLocaleString()}</td><td>${t[1]}</td><td>${t[2]}</td><td>${t[3]}</td><td>${t[4]}</td><td>${t[5]}</td><td>${t[6]}</td>`;
+    tb.appendChild(tr);
+  });
+}
+// Live WebSocket
+let ws=null;
+function connectWS(){
+  if(ws){return;}
+  ws=new WebSocket('ws://'+location.host+'/ws/prices');
+  ws.onopen=()=>showStatus('wsStatus','Connected (live)','ok');
+  ws.onmessage=e=>{
+    const d=JSON.parse(e.data);
+    if(d.type==='price'){
+      const tb=$('liveTable'); tb.innerHTML='';
+      for(const [ex,px] of Object.entries(d.prices)){
+        const tr=document.createElement('tr'); tr.innerHTML=`<td>${ex}</td><td>${px}</td>`; tb.appendChild(tr);
+      }
+    }
+  };
+  ws.onclose=()=>{showStatus('wsStatus','Disconnected','warn');ws=null;};
+  ws.onerror=()=>showStatus('wsStatus','Error','err');
+}
+function disconnectWS(){ if(ws){ws.close();ws=null;} }
+async function livePrice(){
+  const sym=$('liveSym').value;
+  const d=await api('/api/live/price?symbol='+encodeURIComponent(sym));
+  $('livePriceOut').textContent=JSON.stringify(d,null,2);
+}
+async function liveOrder(){
+  const body={symbol:$('liveSym').value,side:$('liveSide').value,quantity:+$('liveQty').value};
+  const d=await api('/api/live/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  $('liveExecStatus').textContent=JSON.stringify(d);
+  $('liveExecStatus').className='status '+(d.status&&d.status.includes('FILLED')?'ok':'err');
+  loadTrades();
+}
+// Binance WS
+let binanceWs=null;
+function connectBinance(){
+  if(binanceWs) return;
+  binanceWs=new WebSocket('ws://'+location.host+'/ws/binance');
+  binanceWs.onopen=()=>showStatus('binanceStatus','Connected (Binance live)','ok');
+  binanceWs.onmessage=e=>{
+    try{const d=JSON.parse(e.data); $('binanceOut').textContent=JSON.stringify(d,null,2);}catch(err){$('binanceOut').textContent=e.data;}
+  };
+  binanceWs.onclose=()=>{showStatus('binanceStatus','Disconnected','warn');binanceWs=null;};
+  binanceWs.onerror=()=>showStatus('binanceStatus','Error','err');
+}
+function disconnectBinance(){ if(binanceWs){binanceWs.close();binanceWs=null;} }
+
+// London Edge WS
+let londonWs=null;
+function connectLondon(){
+  if(londonWs) return;
+  londonWs=new WebSocket('ws://'+location.host+'/ws/london');
+  londonWs.onopen=()=>showStatus('londonStatus','Connected (London edge)','ok');
+  londonWs.onmessage=e=>{
+    try{
+      const d=JSON.parse(e.data);
+      const tb=$('londonTable');
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${new Date(d.ts*1000).toLocaleTimeString()}</td><td>${d.signal}</td><td>${d.strength}</td>`;
+      tb.insertBefore(tr,tb.firstChild);
+      if(tb.children.length>20) tb.removeChild(tb.lastChild);
+    }catch(err){}
+  };
+  londonWs.onclose=()=>{showStatus('londonStatus','Disconnected','warn');londonWs=null;};
+  londonWs.onerror=()=>showStatus('londonStatus','Error','err');
+}
+function disconnectLondon(){ if(londonWs){londonWs.close();londonWs=null;} }
+
+// Order Book view
+async function loadOrderBook(){
+  const d=await api('/api/pools');
+  // render a simple order book from price spread
+  const prices=Object.entries(d.prices).sort((a,b)=>a[1]-b[1]);
+  let html='<table><tr><th>Side</th><th>Exchange</th><th>Price</th></tr>';
+  prices.forEach(([ex,px],i)=>{
+    const side = i<prices.length/2?'BID (buy)':'ASK (sell)';
+    html+=`<tr><td>${side}</td><td>${ex}</td><td>${px}</td></tr>`;
+  });
+  html+='</table>';
+  const el=$('orderBook'); if(el) el.innerHTML=html;
+}
+
+// Order Book WS
+let obWs=null;
+function connectOB(){
+  if(obWs) return;
+  obWs=new WebSocket('ws://'+location.host+'/ws/orderbook');
+  obWs.onopen=()=>showStatus('obStatus','Connected','ok');
+  obWs.onmessage=e=>{
+    try{
+      const d=JSON.parse(e.data);
+      if(d.type==='orderbook'){
+        const bt=$('bidTable'); bt.innerHTML='';
+        (d.bids||[]).forEach(b=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${b[0]}</td><td>${b[1]}</td>`;bt.appendChild(tr);});
+        const at=$('askTable'); at.innerHTML='';
+        (d.asks||[]).forEach(a=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${a[0]}</td><td>${a[1]}</td>`;at.appendChild(tr);});
+      }
+    }catch(err){}
+  };
+  obWs.onclose=()=>{showStatus('obStatus','Disconnected','warn');obWs=null;};
+  obWs.onerror=()=>showStatus('obStatus','Error','err');
+}
+function disconnectOB(){ if(obWs){obWs.close();obWs=null;} }
+
+loadTrades();
+</script>
+</body>
+</html>

@@ -20,8 +20,10 @@ strategies and market execution.
 ## Quick start
 ```bash
 cd ~/trading
+python web/run.sh              # web UI at http://localhost:8765
 jupyter lab notebooks/        # research
 python backtests/run_backtest.py   # example backtest
+python run_all.py              # full pipeline
 ```
 
 ## Installed stack

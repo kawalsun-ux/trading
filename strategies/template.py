@@ -1,32 +1,33 @@
-"""Parameterized strategy template (RSI + Bollinger Bands mean reversion).
+"""RSI + Bollinger Bands template (zero-dep)."""
+PARAMS = {"rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 70,
+          "bb_period": 20, "bb_dev": 2.0, "stake": 100}
 
-Tunable params exposed for walk-forward optimization:
-  rsi_period, rsi_oversold, rsi_overbought,
-  bb_period, bb_dev, stake
-"""
-import backtrader as bt
+def _rsi(prices, period):
+    if len(prices) < period+1: return 50.0
+    gains, losses = [], []
+    for i in range(1, period+1):
+        d = prices[-i] - prices[-i-1]
+        (gains if d > 0 else losses).append(abs(d))
+    ag = sum(gains)/period if gains else 0
+    al = sum(losses)/period if losses else 0
+    if al == 0: return 100.0
+    return 100 - (100/(1+ag/al))
 
-class RsiBbTemplate(bt.Strategy):
-    params = (
-        ("rsi_period", 14),
-        ("rsi_oversold", 30),
-        ("rsi_overbought", 70),
-        ("bb_period", 20),
-        ("bb_dev", 2.0),
-        ("stake", 100),
-    )
-
-    def __init__(self):
-        self.rsi = bt.indicators.RSI(self.data.close, period=self.p.rsi_period)
-        self.bb = bt.indicators.BollingerBands(self.data.close, period=self.p.bb_period,
-                                                devfactor=self.p.bb_dev)
-        self.cross_up = bt.indicators.CrossOver(self.data.close, self.bb.lines.bot)
-        self.cross_down = bt.indicators.CrossOver(self.data.close, self.bb.lines.top)
-
-    def next(self):
-        if not self.position:
-            if self.rsi[0] < self.p.rsi_oversold or self.cross_up[0] > 0:
-                self.buy(size=self.p.stake)
-        else:
-            if self.rsi[0] > self.p.rsi_overbought or self.cross_down[0] < 0:
-                self.close()
+def make_rule(params=None):
+    p = dict(PARAMS)
+    if params: p.update(params)
+    rp, bbp, dev = p["rsi_period"], p["bb_period"], p["bb_dev"]
+    def rule(i, prices, position):
+        if i < max(rp, bbp): return "hold"
+        rsi = _rsi(prices[:i+1], rp)
+        window = prices[i-bbp+1:i+1]
+        mean = sum(window)/len(window)
+        std = (sum((x-mean)**2 for x in window)/len(window))**0.5
+        lower = mean - dev*std
+        upper = mean + dev*std
+        if not position and (rsi < p["rsi_oversold"] or prices[i] < lower):
+            return "buy"
+        if position and (rsi > p["rsi_overbought"] or prices[i] > upper):
+            return "sell"
+        return "hold"
+    return rule

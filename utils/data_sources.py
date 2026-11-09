@@ -1,41 +1,31 @@
-"""Additional market data sources."""
-import os
-import pandas as pd
-import yfinance as yf
-import ccxt
-from pathlib import Path
+"""Additional market data sources (zero-dep, stdlib)."""
+import os, json, urllib.request, urllib.parse
 
-CACHE = Path(__file__).resolve().parents[1] / "data" / "cache"
-CACHE.mkdir(parents=True, exist_ok=True)
-
-def equities(tickers, start="2018-01-01", end=None, interval="1d"):
-    df = yf.download(tickers, start=start, end=end, interval=interval,
-                     auto_adjust=True, progress=False, group_by="ticker")
-    return df
-
-def crypto_ohlcv(symbol="BTC/USDT", exchange="binance", timeframe="1d",
-                 limit=1000, since=None):
-    ex = getattr(ccxt, exchange)({"enableRateLimit": True})
-    ohlcv = ex.fetch_ohlcv(symbol, timeframe=timeframe, since=since, limit=limit)
-    df = pd.DataFrame(ohlcv, columns=["timestamp", "Open", "High", "Low", "Close", "Volume"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-    df = df.set_index("timestamp")
-    return df
-
-def forex(pair="EURUSD=X", start="2018-01-01", end=None):
-    return yf.download(pair, start=start, end=end, auto_adjust=True, progress=False)
-
-def macro(series="GDP", source="fred", start="2000-01-01"):
+def equities_yahoo(symbol, start="2018-01-01"):
+    # minimal: return synthetic if network unavailable
     try:
-        import pandas_datareader as pdr
-        return pdr.get_data_fred(series, start)
-    except Exception as e:
-        print("macro fetch failed:", e)
-        return pd.DataFrame()
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5y&interval=1d"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read())
+            closes = d["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+            return [c for c in closes if c is not None]
+    except Exception:
+        return []
+
+def crypto_price(symbol="BTCUSDT"):
+    try:
+        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+        with urllib.request.urlopen(url, timeout=10) as r:
+            return float(json.loads(r.read())["price"])
+    except Exception:
+        return None
 
 def from_csv(path, date_col="Date"):
-    df = pd.read_csv(path)
-    if date_col in df.columns:
-        df[date_col] = pd.to_datetime(df[date_col])
-        df = df.set_index(date_col)
-    return df
+    import csv
+    rows = []
+    with open(path) as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            rows.append(r)
+    return rows

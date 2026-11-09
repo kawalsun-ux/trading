@@ -1,14 +1,11 @@
-"""Paper-trading example using ccxt (sandbox/testnet)."""
-import ccxt
+"""Paper trading (zero-dep, uses live_adapter)."""
+from execution.live_adapter import LiveAdapter
 
-def make_exchange(name="binance", sandbox=True):
-    ex = getattr(ccxt, name)({"enableRateLimit": True})
-    if sandbox and hasattr(ex, "setSandboxMode"):
-        ex.setSandboxMode(True)
-    return ex
+def demo():
+    ad = LiveAdapter(sandbox=True)
+    print("mode:", ad.mode())
+    print("price:", ad.price("BTCUSDT"))
+    print("order:", ad.place_order("BTCUSDT", "buy", 0.001))
 
 if __name__ == "__main__":
-    ex = make_exchange("binance", sandbox=True)
-    print("Markets:", len(ex.load_markets()))
-    ticker = ex.fetch_ticker("BTC/USDT")
-    print("BTC/USDT last:", ticker["last"])
+    demo()

@@ -1,17 +1,20 @@
-"""Simple moving-average crossover strategy for backtrader."""
-import backtrader as bt
+"""MA crossover strategy (zero-dep, stdlib)."""
+PARAMS = {"fast": 10, "slow": 30, "stake": 100}
 
-class MACrossover(bt.Strategy):
-    params = (("fast", 10), ("slow", 30), ("stake", 100))
-
-    def __init__(self):
-        self.fast_ma = bt.indicators.SMA(self.data.close, period=self.p.fast)
-        self.slow_ma = bt.indicators.SMA(self.data.close, period=self.p.slow)
-        self.crossover = bt.indicators.CrossOver(self.fast_ma, self.slow_ma)
-
-    def next(self):
-        if not self.position:
-            if self.crossover > 0:
-                self.buy(size=self.p.stake)
-        elif self.crossover < 0:
-            self.close()
+def make_rule(params=None):
+    p = dict(PARAMS); 
+    if params: p.update(params)
+    fast, slow = p["fast"], p["slow"]
+    def rule(i, prices, position):
+        if i < slow:
+            return "hold"
+        fast_ma = sum(prices[i-fast+1:i+1]) / fast
+        slow_ma = sum(prices[i-slow+1:i+1]) / slow
+        prev_fast = sum(prices[i-fast:i]) / fast
+        prev_slow = sum(prices[i-slow:i]) / slow
+        if not position and prev_fast <= prev_slow and fast_ma > slow_ma:
+            return "buy"
+        if position and prev_fast >= prev_slow and fast_ma < slow_ma:
+            return "sell"
+        return "hold"
+    return rule

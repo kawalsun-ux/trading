@@ -1,24 +1,19 @@
-"""Market data helpers."""
-import yfinance as yf
-import pandas as pd
-from pathlib import Path
+"""Market data helpers (zero-dep, stdlib + ingested data/feeds)."""
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from data.feeds import synthetic_tick, live_venue_books, fetch_venue_book
 
-CACHE = Path(__file__).resolve().parents[1] / "data" / "cache"
+def load_ohlcv_synthetic(symbol="SPY", n=200, start_price=100.0):
+    """Generate synthetic OHLCV (zero-dep, no network)."""
+    prices = []
+    p = start_price
+    for i in range(n):
+        p = p * (1 + ( (i*7+3) % 11 - 5) * 0.002)
+        prices.append(round(p, 4))
+    return prices
 
-def load_ohlcv(ticker: str, start="2018-01-01", end=None, interval="1d") -> pd.DataFrame:
-    cache_file = CACHE / f"{ticker}_{interval}.csv"
-    if cache_file.exists():
-        df = pd.read_csv(cache_file, index_col=0, parse_dates=True)
-        if end is None or df.index.max().strftime("%Y-%m-%d") >= (end or "9999"):
-            return df
-    df = yf.download(ticker, start=start, end=end, interval=interval, auto_adjust=True, progress=False)
-    df = df.dropna()
-    CACHE.mkdir(parents=True, exist_ok=True)
-    df.to_csv(cache_file)
-    return df
-
-def add_returns(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["ret"] = df["Close"].pct_change()
-    df["logret"] = (df["Close"] / df["Close"].shift(1)).apply(lambda x: __import__("numpy").log(x) if x and x > 0 else float("nan"))
-    return df
+def live_prices(symbols):
+    try:
+        return live_venue_books(symbols)
+    except Exception:
+        return {}
