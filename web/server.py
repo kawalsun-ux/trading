@@ -80,6 +80,21 @@ class Handler(BaseHTTPRequestHandler):
                         "profitable": spread_pct > 0.1})
         elif path == "/api/walkforward":
             self._json({"status": "run via CLI", "file": "reports/walk_forward.csv"})
+        elif path == "/api/candles":
+            import random
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            n = int(qs.get("n", ["60"])[0])
+            tf = qs.get("tf", ["1m"])[0]
+            candles = []
+            p = 100.0
+            for i in range(n):
+                o = p
+                h = o + random.uniform(0, 2)
+                l = o - random.uniform(0, 2)
+                c = random.uniform(l, h)
+                p = c
+                candles.append({"t": i, "o": round(o,2), "h": round(h,2), "l": round(l,2), "c": round(c,2)})
+            self._json({"timeframe": tf, "candles": candles})
         elif path == "/api/live/price":
             from execution.live_adapter import LiveAdapter
             ad = LiveAdapter(sandbox=CONFIG.get("sandbox", True))
@@ -136,6 +151,8 @@ class Handler(BaseHTTPRequestHandler):
                 upstream, _ = connect("wss://stream.binance.com:9443/ws/btcusdt@depth20@100ms", timeout=3)
             except Exception:
                 upstream = None
+        elif path == "/ws/candles":
+            upstream = None  # mock live candles
         # relay or mock
         import json as _j, time as _t, random as _r
         try:
@@ -172,6 +189,12 @@ class Handler(BaseHTTPRequestHandler):
                         bids = [[round(mid - i*0.05 - _r.random()*0.02, 4), round(_r.uniform(0.5, 5), 3)] for i in range(10)]
                         asks = [[round(mid + i*0.05 + _r.random()*0.02, 4), round(_r.uniform(0.5, 5), 3)] for i in range(10)]
                         msg = _j.dumps({"type": "orderbook", "bids": bids, "asks": asks, "ts": _t.time()})
+                    elif path == "/ws/candles":
+                        o = round(100 + _r.uniform(-1, 1), 2)
+                        h = round(o + _r.uniform(0, 2), 2)
+                        l = round(o - _r.uniform(0, 2), 2)
+                        c = round(_r.uniform(l, h), 2)
+                        msg = _j.dumps({"type": "candle", "o": o, "h": h, "l": l, "c": c, "ts": _t.time()})
                     else:
                         prices = {ex: round(100.0*(1+_r.uniform(-0.003,0.003)),4) for ex in ["binance","kraken","coinbase","okx"]}
                         msg = _j.dumps({"type": "price", "source": "mock", "prices": prices, "ts": _t.time()})

@@ -214,6 +214,13 @@ code{font-family:'JetBrains Mono',monospace;background:var(--card);padding:2px 4
   <div class="card">
     <table><thead><tr><th>Exchange</th><th>Price</th></tr></thead><tbody id="liveTable"></tbody></table>
   </div>
+  <h2>Live Candlesticks (WebSocket)</h2>
+  <div class="row">
+    <button onclick="connectCandles()">Connect</button>
+    <button class="danger" onclick="disconnectCandles()">Disconnect</button>
+    <span id="candleWsStatus" class="status ok">Disconnected</span>
+  </div>
+  <canvas id="liveCandleChart" width="880" height="260"></canvas>
   <div class="card">
     <h2>Live Execution (paper)</h2>
     <div class="row">
@@ -465,6 +472,50 @@ function connectOB(){
   obWs.onerror=()=>showStatus('obStatus','Error','err');
 }
 function disconnectOB(){ if(obWs){obWs.close();obWs=null;} }
+
+// Live Candlesticks WS
+let candleWs=null, liveCandles=[];
+function connectCandles(){
+  if(candleWs) return;
+  liveCandles=[];
+  candleWs=new WebSocket('ws://'+location.host+'/ws/candles');
+  candleWs.onopen=()=>showStatus('candleWsStatus','Connected (live candles)','ok');
+  candleWs.onmessage=e=>{
+    try{
+      const d=JSON.parse(e.data);
+      if(d.type==='candle'){
+        liveCandles.push(d);
+        if(liveCandles.length>80) liveCandles.shift();
+        drawLiveCandles();
+      }
+    }catch(err){}
+  };
+  candleWs.onclose=()=>{showStatus('candleWsStatus','Disconnected','warn');candleWs=null;};
+  candleWs.onerror=()=>showStatus('candleWsStatus','Error','err');
+}
+function disconnectCandles(){ if(candleWs){candleWs.close();candleWs=null;} }
+function drawLiveCandles(){
+  const c=$('liveCandleChart'), ctx=c.getContext('2d');
+  ctx.clearRect(0,0,c.width,c.height);
+  if(liveCandles.length<2) return;
+  const pad=40, w=c.width-pad*2, h=c.height-pad*2;
+  const all=liveCandles.flatMap(x=>[x.h,x.l]);
+  const mn=Math.min(...all), mx=Math.max(...all), range=mx-mn||1;
+  const bw=w/liveCandles.length*0.6;
+  liveCandles.forEach((bar,i)=>{
+    const x=pad+i*(w/liveCandles.length)+(w/liveCandles.length-bw)/2;
+    const oY=pad+h-(bar.o-mn)/range*h;
+    const hY=pad+h-(bar.h-mn)/range*h;
+    const lY=pad+h-(bar.l-mn)/range*h;
+    const cY=pad+h-(bar.c-mn)/range*h;
+    const up=bar.c>=bar.o;
+    ctx.strokeStyle=up?'#10b981':'#ef4444';
+    ctx.beginPath(); ctx.moveTo(x+bw/2,hY); ctx.lineTo(x+bw/2,lY); ctx.stroke();
+    ctx.fillStyle=up?'#10b981':'#ef4444';
+    const top=Math.min(oY,cY), bot=Math.max(oY,cY);
+    ctx.fillRect(x, top, bw, Math.max(1,bot-top));
+  });
+}
 
 loadTrades();
 </script>
