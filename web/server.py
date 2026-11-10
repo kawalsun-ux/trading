@@ -80,6 +80,20 @@ class Handler(BaseHTTPRequestHandler):
                         "profitable": spread_pct > 0.1})
         elif path == "/api/walkforward":
             self._json({"status": "run via CLI", "file": "reports/walk_forward.csv"})
+        elif path == "/api/candles":
+            import random
+            n = int(urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("n", ["60"])[0])
+            tf = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("tf", ["1d"])[0]
+            candles = []
+            p = 100.0
+            for i in range(n):
+                o = p
+                h = o + random.uniform(0, 2)
+                l = o - random.uniform(0, 2)
+                c = random.uniform(l, h)
+                p = c
+                candles.append({"t": i, "o": round(o,2), "h": round(h,2), "l": round(l,2), "c": round(c,2)})
+            self._json({"timeframe": tf, "candles": candles})
         elif path == "/api/live/price":
             from execution.live_adapter import LiveAdapter
             ad = LiveAdapter(sandbox=CONFIG.get("sandbox", True))

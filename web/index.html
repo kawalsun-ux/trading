@@ -56,6 +56,7 @@ code{font-family:'JetBrains Mono',monospace;background:var(--card);padding:2px 4
 <div class="tab" data-panel="binance">Binance WS</div>
 <div class="tab" data-panel="london">London Edge</div>
 <div class="tab" data-panel="orderbook">Order Book</div>
+<div class="tab" data-panel="candles">Candlesticks</div>
 </div>
 
 <!-- Arbitrage -->
@@ -248,6 +249,20 @@ code{font-family:'JetBrains Mono',monospace;background:var(--card);padding:2px 4
       <table><thead><tr><th>Price</th><th>Qty</th></tr></thead><tbody id="askTable"></tbody></table>
     </div>
   </div>
+</div>
+
+<!-- Candlesticks -->
+<div id="candles" class="panel">
+  <h2>Candlestick Chart</h2>
+  <div class="row">
+    <label>Timeframe:
+      <select id="tf"><option value="1m">1m</option><option value="5m">5m</option><option value="1h">1h</option><option value="1d" selected>1d</option></select>
+    </label>
+    <label>Bars: <input id="candleN" type="number" value="60" style="width:80px"></label>
+    <button onclick="loadCandles()">Load</button>
+  </div>
+  <canvas id="candleChart" width="880" height="320"></canvas>
+  <div id="candleStatus" class="status ok"></div>
 </div>
 
 <!-- Trade Log -->
@@ -466,6 +481,38 @@ function connectOB(){
 }
 function disconnectOB(){ if(obWs){obWs.close();obWs=null;} }
 
+// Candlesticks
+async function loadCandles(){
+  const n=$('candleN').value, tf=$('tf').value;
+  const d=await api('/api/candles?n='+n+'&tf='+tf);
+  drawCandles('candleChart', d.candles);
+  showStatus('candleStatus', d.candles.length+' bars loaded ('+tf+')','ok');
+}
+function drawCandles(canvasId, candles){
+  const c=$(canvasId), ctx=c.getContext('2d');
+  ctx.clearRect(0,0,c.width,c.height);
+  const pad=40, w=c.width-pad*2, h=c.height-pad*2;
+  const all=candles.flatMap(x=>[x.h,x.l]);
+  const mn=Math.min(...all), mx=Math.max(...all);
+  const range=mx-mn||1;
+  const bw=w/candles.length*0.6;
+  candles.forEach((bar,i)=>{
+    const x=pad+i*(w/candles.length)+ (w/candles.length-bw)/2;
+    const oY=pad+h-(bar.o-mn)/range*h;
+    const hY=pad+h-(bar.h-mn)/range*h;
+    const lY=pad+h-(bar.l-mn)/range*h;
+    const cY=pad+h-(bar.c-mn)/range*h;
+    const up=bar.c>=bar.o;
+    // wick
+    ctx.strokeStyle=up?'#10b981':'#ef4444';
+    ctx.beginPath(); ctx.moveTo(x+bw/2,hY); ctx.lineTo(x+bw/2,lY); ctx.stroke();
+    // body
+    ctx.fillStyle=up?'#10b981':'#ef4444';
+    const top=Math.min(oY,cY), bot=Math.max(oY,cY);
+    ctx.fillRect(x, top, bw, Math.max(1,bot-top));
+  });
+}
+loadCandles();
 loadTrades();
 </script>
 </body>
