@@ -56,6 +56,7 @@ code{font-family:'JetBrains Mono',monospace;background:var(--card);padding:2px 4
 <div class="tab" data-panel="binance">Binance WS</div>
 <div class="tab" data-panel="london">London Edge</div>
 <div class="tab" data-panel="orderbook">Order Book</div>
+<div class="tab" data-panel="charts">Charts & Indicators</div>
 </div>
 
 <!-- Arbitrage -->
@@ -255,6 +256,32 @@ code{font-family:'JetBrains Mono',monospace;background:var(--card);padding:2px 4
       <table><thead><tr><th>Price</th><th>Qty</th></tr></thead><tbody id="askTable"></tbody></table>
     </div>
   </div>
+</div>
+
+<!-- Charts & Indicators -->
+<div id="charts" class="panel">
+  <h2>Charts & Indicators (standard practices)</h2>
+  <div class="row">
+    <label>Bars: <input id="chartN" type="number" value="120" style="width:80px"></label>
+    <label>Fast MA: <input id="fastMA" type="number" value="9" style="width:60px"></label>
+    <label>Slow MA: <input id="slowMA" type="number" value="21" style="width:60px"></label>
+    <label>BB period: <input id="bbP" type="number" value="20" style="width:60px"></label>
+    <label>RSI period: <input id="rsiP" type="number" value="14" style="width:60px"></label>
+    <button onclick="loadCharts()">Load & Compute</button>
+  </div>
+  <div class="card">
+    <canvas id="priceChart" width="900" height="320"></canvas>
+  </div>
+  <div class="card">
+    <canvas id="volChart" width="900" height="100"></canvas>
+  </div>
+  <div class="card">
+    <canvas id="rsiChart" width="900" height="120"></canvas>
+  </div>
+  <div class="card">
+    <canvas id="macdChart" width="900" height="120"></canvas>
+  </div>
+  <div id="chartStatus" class="status ok"></div>
 </div>
 
 <!-- Trade Log -->
@@ -516,6 +543,130 @@ function drawLiveCandles(){
     ctx.fillRect(x, top, bw, Math.max(1,bot-top));
   });
 }
+
+// Charts & Indicators
+function sma(arr, period){const out=Array(arr.length).fill(null);let s=0;for(let i=0;i<arr.length;i++){s+=arr[i];if(i>=period) s-=arr[i-period];if(i>=period-1) out[i]=s/period;}return out;}
+function ema(arr, period){const out=Array(arr.length).fill(null);const k=2/(period+1);let e=arr[0];out[0]=e;for(let i=1;i<arr.length;i++){e=arr[i]*k+e*(1-k);out[i]=e;}return out;}
+function rsi(arr, period){const out=Array(arr.length).fill(null);let gains=0,losses=0;for(let i=1;i<=period;i++){const d=arr[i]-arr[i-1];if(d>0)gains+=d;else losses-=d;}let ag=gains/period,al=losses/period;out[period]=al===0?100:100-100/(1+ag/al);for(let i=period+1;i<arr.length;i++){const d=arr[i]-arr[i-1];const g=d>0?d:0, l=d<0?-d:0;ag=(ag*(period-1)+g)/period;al=(al*(period-1)+l)/period;out[i]=al===0?100:100-100/(1+ag/al);}return out;}
+function bollinger(arr, period, dev){const m=sma(arr,period);const out={upper:[],lower:[],mid:m};const std=Array(arr.length).fill(null);for(let i=period-1;i<arr.length;i++){const w=arr.slice(i-period+1,i+1);const mean=m[i];const v=w.reduce((a,x)=>a+(x-mean)**2,0)/w.length;std[i]=Math.sqrt(v);}out.upper=arr.map((_,i)=>m[i]===null?null:m[i]+dev*(std[i]||0));out.lower=arr.map((_,i)=>m[i]===null?null:m[i]-dev*(std[i]||0));return out;}
+function macd(arr, fast=12, slow=26, signal=9){const ef=ema(arr,fast), es=ema(arr,slow);const line=arr.map((_,i)=>(ef[i]!==null&&es[i]!==null)?ef[i]-es[i]:null);const valid=line.filter(x=>x!==null);const sig=ema(valid,signal);const sigFull=Array(arr.length).fill(null);let j=0;for(let i=0;i<arr.length;i++){if(line[i]!==null){sigFull[i]=sig[j];j++;}}const hist=arr.map((_,i)=>(line[i]!==null&&sigFull[i]!==null)?line[i]-sigFull[i]:null);return{macd:line,signal:sigFull,hist:hist};}
+
+async function loadCharts(){
+  const n=+$('chartN').value;
+  const d=await api('/api/candles?n='+n+'&tf=1d');
+  const candles=d.candles;
+  const closes=candles.map(c=>c.c);
+  const highs=candles.map(c=>c.h);
+  const lows=candles.map(c=>c.l);
+  const volumes=candles.map((c,i)=>Math.abs(c.c-c.o)*100+50);
+  const fastP=+$('fastMA').value, slowP=+$('slowMA').value, bbP=+$('bbP').value, rsiP=+$('rsiP').value;
+  const fast=sma(closes,fastP), slow=sma(closes,slowP);
+  const bb=bollinger(closes,bbP,2);
+  const rsiArr=rsi(closes,rsiP);
+  const macdObj=macd(closes);
+  // trade signals: simple crossover
+  const signals=[];
+  for(let i=1;i<closes.length;i++){ if(fast[i]!==null&&slow[i]!==null&&fast[i-1]!==null&&slow[i-1]!==null){ if(fast[i-1]<=slow[i-1]&&fast[i]>slow[i]) signals.push({i,type:'buy'}); if(fast[i-1]>=slow[i-1]&&fast[i]<slow[i]) signals.push({i,type:'sell'}); } }
+  drawPriceChart('priceChart', candles, {fast,slow,bb,signals});
+  drawVolChart('volChart', volumes, closes);
+  drawRsiChart('rsiChart', rsiArr, rsiP);
+  drawMacdChart('macdChart', macdObj);
+  showStatus('chartStatus', candles.length+' bars | MA('+fastP+','+slowP+') BB('+bbP+') RSI('+rsiP+') | Signals: '+signals.length, 'ok');
+}
+
+function drawPriceChart(id, candles, ind){
+  const c=$(id),ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height);
+  const pad={l:50,r:10,t:10,b:20}, w=c.width-pad.l-pad.r, h=c.height-pad.t-pad.b;
+  const all=candles.flatMap(x=>[x.h,x.l]).concat(ind.bb.upper.filter(x=>x!==null),ind.bb.lower.filter(x=>x!==null));
+  const mn=Math.min(...all), mx=Math.max(...all), range=mx-mn||1;
+  const n=candles.length;
+  const x=i=>pad.l+i*(w/n)+ (w/n)*0.15;
+  const bw=w/n*0.7;
+  const y=v=>pad.t+h-(v-mn)/range*h;
+  // grid
+  ctx.strokeStyle='#1a1a1a'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const yy=pad.t+i*h/4;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(pad.l+w,yy);ctx.stroke();ctx.fillStyle='#8b95a5';ctx.font='10px JetBrains Mono';ctx.fillText((mx-i*range/4).toFixed(2),2,yy+3);}
+  // candles
+  candles.forEach((bar,i)=>{
+    const cx=x(i), up=bar.c>=bar.o;
+    ctx.strokeStyle=up?'#10b981':'#ef4444';
+    ctx.beginPath(); ctx.moveTo(cx+bw/2,y(bar.h)); ctx.lineTo(cx+bw/2,y(bar.l)); ctx.stroke();
+    ctx.fillStyle=up?'#10b981':'#ef4444';
+    const top=Math.min(y(bar.o),y(bar.c)), bot=Math.max(y(bar.o),y(bar.c));
+    ctx.fillRect(cx, top, bw, Math.max(1,bot-top));
+  });
+  // overlays
+  const drawLine=(arr,color,width=1.5)=>{
+    ctx.strokeStyle=color; ctx.lineWidth=width; ctx.beginPath(); let started=false;
+    arr.forEach((v,i)=>{ if(v===null) return; if(!started){ctx.moveTo(x(i)+bw/2,y(v));started=true;}else ctx.lineTo(x(i)+bw/2,y(v)); });
+    ctx.stroke();
+  };
+  drawLine(ind.fast,'#fbbf24',1.5);
+  drawLine(ind.slow,'#a78bfa',1.5);
+  drawLine(ind.bb.upper,'#60a5fa',1);
+  drawLine(ind.bb.lower,'#60a5fa',1);
+  drawLine(ind.bb.mid,'#60a5fa',0.8);
+  // signals
+  ind.signals.forEach(sg=>{
+    const i=sg.i;
+    ctx.fillStyle=sg.type==='buy'?'#22c55e':'#ef4444';
+    ctx.beginPath();
+    if(sg.type==='buy'){ctx.moveTo(x(i)+bw/2,y(candles[i].l)-8);ctx.lineTo(x(i)+bw/2-6,y(candles[i].l)-16);ctx.lineTo(x(i)+bw/2+6,y(candles[i].l)-16);}
+    else{ctx.moveTo(x(i)+bw/2,y(candles[i].h)+8);ctx.lineTo(x(i)+bw/2-6,y(candles[i].h)+16);ctx.lineTo(x(i)+bw/2+6,y(candles[i].h)+16);}
+    ctx.closePath();ctx.fill();
+  });
+}
+function drawVolChart(id,volumes,closes){
+  const c=$(id),ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);
+  const pad={l:50,r:10,t:5,b:15},w=c.width-pad.l-pad.r,h=c.height-pad.t-pad.b;
+  const mx=Math.max(...volumes);
+  const n=volumes.length,bw=w/n*0.7;
+  volumes.forEach((v,i)=>{
+    const x=pad.l+i*(w/n)+(w/n-bw)/2;
+    const bh=v/mx*h;
+    ctx.fillStyle=closes[i]>=closes[Math.max(0,i-1)]?'rgba(16,185,129,.5)':'rgba(239,68,68,.5)';
+    ctx.fillRect(x,pad.t+h-bh,bw,bh);
+  });
+}
+function drawRsiChart(id,rsiArr,period){
+  const c=$(id),ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);
+  const pad={l:50,r:10,t:10,b:20},w=c.width-pad.l-pad.r,h=c.height-pad.t-pad.b;
+  // grid lines at 30/70
+  [30,50,70].forEach(lvl=>{
+    const y=pad.t+h-(lvl/100)*h;
+    ctx.strokeStyle=lvl===50?'#333':'#1f2a3d';ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(pad.l+w,y);ctx.stroke();
+    ctx.fillStyle='#8b95a5';ctx.font='9px JetBrains Mono';ctx.fillText(lvl,pad.l-25,y+3);
+  });
+  ctx.strokeStyle='#a78bfa';ctx.lineWidth=1.5;ctx.beginPath();let started=false;
+  rsiArr.forEach((v,i)=>{ if(v===null) return; const x=pad.l+i*(w/rsiArr.length); const y=pad.t+h-(v/100)*h; if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y); });
+  ctx.stroke();
+  ctx.fillStyle='#8b95a5';ctx.font='10px JetBrains Mono';ctx.fillText('RSI('+period+')',pad.l,12);
+}
+function drawMacdChart(id,macdObj){
+  const c=$(id),ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);
+  const pad={l:50,r:10,t:10,b:20},w=c.width-pad.l-pad.r,h=c.height-pad.t-pad.b;
+  const vals=macdObj.hist.filter(x=>x!==null);
+  const mx=Math.max(...vals.map(Math.abs))||1;
+  const n=macdObj.hist.length;
+  const zero=pad.t+h/2;
+  ctx.strokeStyle='#333';ctx.beginPath();ctx.moveTo(pad.l,zero);ctx.lineTo(pad.l+w,zero);ctx.stroke();
+  macdObj.hist.forEach((v,i)=>{
+    if(v===null) return;
+    const x=pad.l+i*(w/n);
+    const bw=w/n*0.6;
+    const bh=Math.abs(v)/mx*(h/2);
+    ctx.fillStyle=v>=0?'#10b981':'#ef4444';
+    ctx.fillRect(x, v>=0?zero-bh:zero, bw, bh);
+  });
+  // macd line
+  ctx.strokeStyle='#38bdf8';ctx.lineWidth=1;ctx.beginPath();let s=false;
+  macdObj.macd.forEach((v,i)=>{if(v===null)return;const x=pad.l+i*(w/n)+w/n/2;const y=pad.t+h/2-(v/mx)*(h/2);if(!s){ctx.moveTo(x,y);s=true;}else ctx.lineTo(x,y);});ctx.stroke();
+  // signal line
+  ctx.strokeStyle='#ff6b35';ctx.lineWidth=1;ctx.beginPath();s=false;
+  macdObj.signal.forEach((v,i)=>{if(v===null)return;const x=pad.l+i*(w/n)+w/n/2;const y=pad.t+h/2-(v/mx)*(h/2);if(!s){ctx.moveTo(x,y);s=true;}else ctx.lineTo(x,y);});ctx.stroke();
+  ctx.fillStyle='#8b95a5';ctx.font='10px JetBrains Mono';ctx.fillText('MACD',pad.l,12);
+}
+loadCharts();
 
 loadTrades();
 </script>
