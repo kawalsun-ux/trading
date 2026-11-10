@@ -3,7 +3,7 @@ import ast, os, sys, unittest
 
 WORKDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_DIRS = ("core", "data", "engines", "brokers", "kit", "strategies", "backtests",
-            "risk", "execution", "utils", "web", "tests", "rfc")
+            "risk", "execution", "utils", "web", "tests", "rfc", "deeptutor", "deeptutor_cli")
 SKIP = {".git", "__pycache__", "node_modules"}
 
 
