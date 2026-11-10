@@ -53,8 +53,7 @@ code{font-family:'JetBrains Mono',monospace;background:var(--card);padding:2px 4
   <div class="tab" data-panel="deploy">Deployment</div>
   <div class="tab" data-panel="log">Trade Log</div>
 <div class="tab" data-panel="live">Live Feed</div>
-<div class="tab" data-panel="binance">Binance WS</div>
-<div class="tab" data-panel="london">London Edge</div>
+
 <div class="tab" data-panel="orderbook">Order Book</div>
 </div>
 
@@ -181,27 +180,6 @@ code{font-family:'JetBrains Mono',monospace;background:var(--card);padding:2px 4
   </div>
 </div>
 
-<!-- Binance WS -->
-<div id="binance" class="panel">
-  <h2>Live Binance WebSocket (BTC/USDT)</h2>
-  <div class="row">
-    <button onclick="connectBinance()">Connect</button>
-    <button class="danger" onclick="disconnectBinance()">Disconnect</button>
-    <span id="binanceStatus" class="status ok">Disconnected</span>
-  </div>
-  <div class="card"><pre id="binanceOut">Waiting...</pre></div>
-</div>
-
-<!-- London Edge -->
-<div id="london" class="panel">
-  <h2>London Session Edge Stream</h2>
-  <div class="row">
-    <button onclick="connectLondon()">Connect</button>
-    <button class="danger" onclick="disconnectLondon()">Disconnect</button>
-    <span id="londonStatus" class="status ok">Disconnected</span>
-  </div>
-  <div class="card"><table><thead><tr><th>Time</th><th>Signal</th><th>Strength</th></tr></thead><tbody id="londonTable"></tbody></table></div>
-</div>
 
 <!-- Live Feed -->
 <div id="live" class="panel">
@@ -402,41 +380,6 @@ async function liveOrder(){
   $('liveExecStatus').className='status '+(d.status&&d.status.includes('FILLED')?'ok':'err');
   loadTrades();
 }
-// Binance WS
-let binanceWs=null;
-function connectBinance(){
-  if(binanceWs) return;
-  binanceWs=new WebSocket('ws://'+location.host+'/ws/binance');
-  binanceWs.onopen=()=>showStatus('binanceStatus','Connected (Binance live)','ok');
-  binanceWs.onmessage=e=>{
-    try{const d=JSON.parse(e.data); $('binanceOut').textContent=JSON.stringify(d,null,2);}catch(err){$('binanceOut').textContent=e.data;}
-  };
-  binanceWs.onclose=()=>{showStatus('binanceStatus','Disconnected','warn');binanceWs=null;};
-  binanceWs.onerror=()=>showStatus('binanceStatus','Error','err');
-}
-function disconnectBinance(){ if(binanceWs){binanceWs.close();binanceWs=null;} }
-
-// London Edge WS
-let londonWs=null;
-function connectLondon(){
-  if(londonWs) return;
-  londonWs=new WebSocket('ws://'+location.host+'/ws/london');
-  londonWs.onopen=()=>showStatus('londonStatus','Connected (London edge)','ok');
-  londonWs.onmessage=e=>{
-    try{
-      const d=JSON.parse(e.data);
-      const tb=$('londonTable');
-      const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${new Date(d.ts*1000).toLocaleTimeString()}</td><td>${d.signal}</td><td>${d.strength}</td>`;
-      tb.insertBefore(tr,tb.firstChild);
-      if(tb.children.length>20) tb.removeChild(tb.lastChild);
-    }catch(err){}
-  };
-  londonWs.onclose=()=>{showStatus('londonStatus','Disconnected','warn');londonWs=null;};
-  londonWs.onerror=()=>showStatus('londonStatus','Error','err');
-}
-function disconnectLondon(){ if(londonWs){londonWs.close();londonWs=null;} }
-
 // Order Book view
 async function loadOrderBook(){
   const d=await api('/api/pools');
