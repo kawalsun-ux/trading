@@ -620,7 +620,64 @@ def run_backtest(candles, strategy_kind, params=None, fee_bps=2.0,
                     [], _sig_params(params, fee_bps, slippage_bps,
                                     strategy_kind, periods_per_year))}
 
-    slip = slippage_bps / 10000.0
+    # Cost model selection (default "flat" preserves prior behaviour).
+    _cost_model = str(params.get("cost_model", "flat") or "flat").lower()
+    _spread_override = params.get("spread_override_bps", None)
+
+    def _avg_volume():
+        vs = [_num(c.get("v", c.get("volume", 0)) if isinstance(c, dict) else 0) for c in candles]
+        vs = [v for v in vs if v > 0]
+        return (sum(vs) / len(vs)) if vs else 0.0
+
+    def _corwin_spread_bps():
+        if _spread_override is not None:
+            return float(_spread_override)
+        try:
+            from utils.costs import spread_corwin_schultz
+        except ImportError:  # pragma: no cover
+            from costs import spread_corwin_schultz
+        highs = [_h(c) for c in candles]
+        lows = [_l(c) for c in candles]
+        return float(spread_corwin_schultz(highs, lows))
+
+    _adv = _avg_volume()
+    _sigma = 0.0
+    try:
+        # crude realized vol from closes (std of returns)
+        if len(closes) >= 2:
+            rets = [closes[i] / closes[i-1] - 1.0 for i in range(1, len(closes))
+                    if closes[i-1] > 0]
+            if rets:
+                m = sum(rets) / len(rets)
+                var = sum((r - m) ** 2 for r in rets) / len(rets)
+                _sigma = math.sqrt(var)
+    except Exception:
+        _sigma = 0.0
+
+    def _slip_for(i):
+        if _cost_model == "flat":
+            return slippage_bps / 10000.0
+        if _cost_model == "spread":
+            sp = _corwin_spread_bps()
+            return (sp + slippage_bps) / 10000.0 / 2.0  # half-spread per side
+        if _cost_model == "impact":
+            try:
+                from utils.costs import impact_sqrt
+            except ImportError:  # pragma: no cover
+                from costs import impact_sqrt
+            qty = _num(params.get("qty", 1.0), 1.0)
+            imp = impact_sqrt(qty, _adv if _adv > 0 else 1.0, _sigma)
+            return (slippage_bps + imp) / 10000.0
+        if _cost_model == "dynamic":
+            # scale by volume pace
+            bar_vol = _num(candles[i].get("v", candles[i].get("volume", 0)) if isinstance(candles[i], dict) else 0)
+            pace = (bar_vol / _adv) if _adv > 0 else 1.0
+            mult = 1.0 if pace >= 1.0 else (1.0 / max(pace, 0.1))
+            mult = min(mult, 5.0)
+            return (slippage_bps * mult) / 10000.0
+        return slippage_bps / 10000.0
+
+    slip = _slip_for(0) if False else (slippage_bps / 10000.0)
     trades = []
     equity = []
     realized = 0.0
@@ -666,16 +723,17 @@ def run_backtest(candles, strategy_kind, params=None, fee_bps=2.0,
     def fill(order, i, ts):
         """Execute `order` at bar `i`'s close. Returns True if it filled."""
         nonlocal pos
+        _slip = _slip_for(i)
         direction = 1.0 if order["side"] == "buy" else -1.0
         if order["kind"] == "exit":
             if pos is None:
                 return False
-            close_pos(closes[i] * (1.0 - direction * slip), i, ts,
+            close_pos(closes[i] * (1.0 - direction * _slip), i, ts,
                       order["reason"])
             return True
         if pos is not None:
             return False
-        entry_px = closes[i] * (1.0 + direction * slip)
+        entry_px = closes[i] * (1.0 + direction * _slip)
         pos = {"side": order["side"], "entry": entry_px, "qty": qty,
                "entry_idx": i, "entry_ts": ts, "fees": fee_for(entry_px * qty)}
         return True

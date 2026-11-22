@@ -272,3 +272,65 @@ def ofi_state(books, lookback=60, min_transitions=20):
     out["reason"] = "{} transitions over {} book states".format(
         len(window), len(seq))
     return out
+
+def spread_proxy(candle):
+    """Spread proxy in bps from a single OHLC bar: (high-low)/close."""
+    if not isinstance(candle, dict):
+        return 0.0
+    h = float(candle.get("h", candle.get("high", 0)) or 0)
+    l = float(candle.get("l", candle.get("low", 0)) or 0)
+    c = float(candle.get("c", candle.get("close", 0)) or 0)
+    if c <= 0:
+        return 0.0
+    return (h - l) / c * 10000.0
+
+
+def volume_profile(candles, buckets=13):
+    """Intraday volume weights across `buckets` time slots (U-shape).
+
+    Returns list of weights (sum ~1) of length <= buckets. Empty input -> [].
+    """
+    bars = list(candles or [])
+    if not bars:
+        return []
+    buckets = max(1, int(buckets or 1))
+    weights = [0.0] * buckets
+    # assign each bar to a bucket by index fraction
+    n = len(bars)
+    for i, c in enumerate(bars):
+        v = float(c.get("v", c.get("volume", 0)) if isinstance(c, dict) else 0)
+        if v < 0:
+            v = 0.0
+        slot = min(buckets - 1, int(i * buckets / n))
+        weights[slot] += v
+    total = sum(weights)
+    if total <= 0:
+        return [1.0 / buckets] * buckets
+    return [w / total for w in weights]
+
+
+def regime_tag(candles, lookback=20):
+    """Tag the last bar's volatility regime as 'high' or 'low'."""
+    closes = []
+    for c in (candles or []):
+        if isinstance(c, dict):
+            cl = c.get("c", c.get("close"))
+            if cl is not None:
+                try:
+                    closes.append(float(cl))
+                except (TypeError, ValueError):
+                    pass
+    if len(closes) < lookback + 1:
+        return "unknown"
+    window = closes[-lookback:]
+    m = sum(window) / len(window)
+    var = sum((x - m) ** 2 for x in window) / len(window)
+    sd = math.sqrt(var) if var > 0 else 0.0
+    # compare to long-run sd
+    long_window = closes[-(lookback * 2):] if len(closes) >= lookback * 2 else closes
+    lm = sum(long_window) / len(long_window)
+    lvar = sum((x - lm) ** 2 for x in long_window) / len(long_window)
+    lsd = math.sqrt(lvar) if lvar > 0 else 0.0
+    if lsd <= 0:
+        return "unknown"
+    return "high" if sd > lsd else "low"
