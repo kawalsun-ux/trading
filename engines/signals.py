@@ -68,6 +68,25 @@ STRATEGIES = [
                    "max_spread_bps": 50, "qty": 1.0},
     },
     {
+        "name": "vwap_trend",
+        "display_name": "VWAP Trend (session)",
+        "tier_required": "Pro",
+        "mode": "wired",
+        "description": "Session-VWAP trend filter: trade with the session bias, entering on pullbacks to VWAP within dev_bps.",
+        "params": {"source": "hlc3", "session_min": 1440, "anchor": "session",
+                   "lookback": 20, "dev_bps": 10, "max_spread_bps": 50, "qty": 1.0},
+    },
+    {
+        "name": "vwap_mean_reversion",
+        "display_name": "VWAP Mean Reversion (fade)",
+        "tier_required": "Pro",
+        "mode": "wired",
+        "description": "Fade moves stretched beyond entry_sigma from session VWAP back to the line, with reversal confirmation and time filter.",
+        "params": {"source": "hlc3", "session_min": 1440, "anchor": "session",
+                   "entry_sigma": 1.5, "stop_sigma": 2.5, "time_filter_min": 30,
+                   "max_spread_bps": 50, "qty": 1.0},
+    },
+    {
         "name": "ema_trend_cot",
         "display_name": "EMA Trend + COT crowding gate",
         "tier_required": "Pro",
@@ -373,6 +392,151 @@ def signal_vwap_bands(candles, quotes, params, closes=None):
     return _flat(None, "inside-bands", params)
 
 
+def signal_vwap_trend(candles, quotes, params, closes=None):
+    """Session-VWAP trend filter: trade with the session's bias.
+
+    Long when price holds above the session VWAP and pulls back to it
+    within `dev_bps`; short symmetrically below. Uses the session-aware
+    VWAP from engines.vwap (resets per session) rather than the cumulative
+    vwap_series, so the line is a fair benchmark for the current session.
+
+    Parameters (all optional):
+      source, session_min, anchor   (as in engines.vwap)
+      lookback                      bars for VWAP slope (default 20)
+      dev_bps                      max distance from VWAP to enter (default 10)
+      max_spread_bps, qty
+    """
+    params = dict(params or {})
+    def _num(key, default, cast=float):
+        try:
+            return cast(params.get(key, default))
+        except (TypeError, ValueError):
+            return cast(default)
+
+    source = str(params.get("source", "hlc3") or "hlc3")
+    session_min = _num("session_min", 1440, int)
+    anchor = params.get("anchor", "session")
+    if isinstance(anchor, str):
+        anchor = anchor.strip().lower()
+        if anchor not in ("session", "first", "day_high", "day_low"):
+            anchor = "session"
+    lookback = _num("lookback", 20, int)
+    dev_limit = _num("dev_bps", 10.0)
+    closes = closes if closes is not None else closes_of(candles)
+    if len(closes) < max(lookback + 1, 30):
+        return _flat(None, "warming-up", params)
+
+    ok, _spread = _check_spread(quotes, params)
+    if not ok:
+        return _flat(None, "spread-too-wide", params)
+
+    try:
+        from engines.vwap import vwap as _vwap
+    except ImportError:  # pragma: no cover - direct-path execution
+        from vwap import vwap as _vwap
+
+    line = _vwap(candles, source=source, session_min=session_min, anchor=anchor)
+    if not line or line[-1] <= 0:
+        return _flat(None, "no-vwap", params)
+    v_now = line[-1]
+    v_then = line[-lookback] if len(line) >= lookback else line[0]
+    if v_then <= 0:
+        return _flat(None, "no-vwap", params)
+    slope = v_now - v_then
+    close = closes[-1]
+    dev_bps = (v_now - close) / v_now * 10000.0  # >0 when price below VWAP
+
+    if slope > 0 and 0 < dev_bps <= dev_limit:
+        return _emit("buy", "vwap-trend-long", params)
+    if slope < 0 and 0 < -dev_bps <= dev_limit:
+        return _emit("sell", "vwap-trend-short", params)
+    if slope == 0:
+        return _flat(None, "vwap-slope-flat", params)
+    return _flat(None, "no-pullback", params)
+
+
+def signal_vwap_mean_reversion(candles, quotes, params, closes=None):
+    """VWAP mean reversion: fade moves stretched beyond entry_sigma back to VWAP.
+
+    Enters short when price is >= entry_sigma above VWAP (and a reversal
+    bar is present), long when <= -entry_sigma below. Stop reference at
+    stop_sigma. Optional time filter skips the first/last `time_filter_min`
+    minutes of the session when timestamps are available.
+
+    Parameters (all optional):
+      source, session_min, anchor   (as in engines.vwap)
+      entry_sigma                   band to fade at (default 1.5)
+      stop_sigma                    stop reference (default 2.5)
+      time_filter_min              skip first/last N minutes (default 30, 0 disables)
+      max_spread_bps, qty
+    """
+    params = dict(params or {})
+    def _num(key, default, cast=float):
+        try:
+            return cast(params.get(key, default))
+        except (TypeError, ValueError):
+            return cast(default)
+
+    source = str(params.get("source", "hlc3") or "hlc3")
+    session_min = _num("session_min", 1440, int)
+    anchor = params.get("anchor", "session")
+    if isinstance(anchor, str):
+        anchor = anchor.strip().lower()
+        if anchor not in ("session", "first", "day_high", "day_low"):
+            anchor = "session"
+    entry_sigma = _num("entry_sigma", 1.5)
+    stop_sigma = _num("stop_sigma", 2.5)
+    time_filter_min = _num("time_filter_min", 30, int)
+    closes = closes if closes is not None else closes_of(candles)
+    if len(closes) < 30:
+        return _flat(None, "warming-up", params)
+
+    ok, _spread = _check_spread(quotes, params)
+    if not ok:
+        return _flat(None, "spread-too-wide", params)
+
+    # Optional time filter using session timestamps.
+    if time_filter_min and time_filter_min > 0:
+        try:
+            from engines.vwap import _session_of
+        except ImportError:  # pragma: no cover - direct-path execution
+            from vwap import _session_of
+        ts = None
+        if candles and isinstance(candles[-1], dict):
+            ts = candles[-1].get("ts", candles[-1].get("time"))
+        sess = _session_of(ts, session_min)
+        if sess is not None and ts is not None:
+            width = max(1, session_min) * 60
+            mins_into = (float(ts) % width) / 60.0
+            if mins_into < time_filter_min or mins_into > session_min - time_filter_min:
+                return _flat(None, "outside-session-window", params)
+
+    try:
+        from engines.vwap import vwap_state
+    except ImportError:  # pragma: no cover - direct-path execution
+        from vwap import vwap_state
+
+    st = vwap_state(candles, source=source, session_min=session_min,
+                    anchor=anchor)
+    if not st.get("ok"):
+        return _flat(None, "no-vwap", params)
+    z = st.get("z")
+    if z is None:
+        return _flat(None, "no-band-dispersion", params)
+
+    # Reversal confirmation: a fade needs the extreme to be stalling.
+    prev_close = closes[-2] if len(closes) >= 2 else closes[-1]
+    price = closes[-1]
+    reversing_up = price > prev_close
+    reversing_down = price < prev_close
+
+    if z <= -entry_sigma and reversing_up:
+        return _emit("buy", "vwap-mr-long", params)
+    if z >= entry_sigma and reversing_down:
+        return _emit("sell", "vwap-mr-short", params)
+    return _flat(None, "no-extreme", params)
+
+
 def signal_ema_trend_cot(candles, quotes, params, closes=None, cot=None):
     """EMA 9/21 trend, vetoed by CFTC crowding. `cot` is a pre-built gate.
 
@@ -606,6 +770,8 @@ _DISPATCH = {
     "ema_trend_cot": signal_ema_trend_cot,
     "vwap_pullback": signal_vwap_pullback,
     "vwap_bands": signal_vwap_bands,
+    "vwap_trend": signal_vwap_trend,
+    "vwap_mean_reversion": signal_vwap_mean_reversion,
     "manual": manual_signal,
     "dual_ema": signal_dual_ema,
     "mean_reversion": signal_mean_reversion,
