@@ -128,3 +128,4 @@ NinjaTrader; SSRN Zarattini & Aziz; QuantifiedStrategies; Schwab; Britannica; Ha
 
 ## Related
 - [[concepts/scalping-strategies]] — scalping strategies, absorption, OFI, microstructure.
+- [[concepts/ml4t-ingest]] — ML4T cost, risk, and monitoring ingestion.
