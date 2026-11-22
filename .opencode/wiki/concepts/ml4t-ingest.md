@@ -21,8 +21,11 @@ Ingested from `stefan-jansen/machine-learning-for-trading` (3rd ed.) into Apex Q
 - **Phase 7 monitoring:** `monitoring/drift.py` (PSI, KS, rolling mean), `monitoring/circuit_breakers.py`.
 - **Phase 8 research process:** `docs/strategy_map.md`, `docs/trading_setup.md`, `backtests/baseline.py`.
 
+## Extras (optional, implemented)
+- `extras/` package: `availability.py`, `ml_models.py`, `hpo.py`, `rl_execution.py`, `README.md`.
+- Graceful degradation verified by `tests/test_extras.py` (6 tests).
+
 ## Pending (optional)
-- Heavy ML (xgboost, optuna, shap, stable-baselines3) — optional `extras/` only.
 - Microstructure notebooks needing 8–33 GB RAM — research reference only.
 
 ## Zero-dep compliance
