@@ -10,19 +10,20 @@ lastReviewed: 2026-11-23
 
 Ingested from `stefan-jansen/machine-learning-for-trading` (3rd ed.) into Apex Quant, zero-dep (stdlib only).
 
-## Implemented (Phases 0–1, 2, 4, 5, 7 partial)
+## Implemented (Phases 0–8)
 - **Phase 0 baseline:** `tests/test_backtest_parity.py`, `scripts/check_backtest_parity.py`, `utils/runlog.py`, `docs/backtest_protocol.md`.
 - **Phase 1 costs:** `utils/costs.py` (Corwin-Schultz, Roll, Kyle λ, sqrt impact, cost stack, gross-vs-net, cost cliff); `engines/backtest.py` now supports `cost_model` (flat/spread/impact/dynamic) via `_slip_for`.
 - **Phase 2 bars:** `data/bars.py` (volume/dollar/tick bars, sessionize); `engines/microstructure.py` additions (spread_proxy, volume_profile, regime_tag).
+- **Phase 3 features:** `utils/features.py` (zscore, momentum, reversal, rolling_vol, liquidity_proxy, point_in_time_align, calendar_encoding, feature_spec).
 - **Phase 4 risk:** `risk/tail.py`, `risk/drawdown.py`, `risk/factor.py`, `risk/stress.py`, `risk/adaptive.py`.
 - **Phase 5 metrics:** `utils/metrics.py` (deflated Sharpe, Sharpe CI, Rademacher).
+- **Phase 6 live readiness:** `execution/state_machine.py`, `execution/parity.py`, `execution/safety.py`.
 - **Phase 7 monitoring:** `monitoring/drift.py` (PSI, KS, rolling mean), `monitoring/circuit_breakers.py`.
+- **Phase 8 research process:** `docs/strategy_map.md`, `docs/trading_setup.md`, `backtests/baseline.py`.
 
-## Pending
-- Phase 3 features (`utils/features.py`: point-in-time align, calendar encoding, feature spec).
-- Phase 6 live readiness (`execution/state_machine.py`, parity, safety).
-- Phase 8 research process (strategy map, trading setup templates, search accounting).
+## Pending (optional)
 - Heavy ML (xgboost, optuna, shap, stable-baselines3) — optional `extras/` only.
+- Microstructure notebooks needing 8–33 GB RAM — research reference only.
 
 ## Zero-dep compliance
 All new core modules stdlib only. `monitoring` added to `APP_DIRS` in `tests/test_zero_dependency.py`. 41 tests pass; hygiene clean.
