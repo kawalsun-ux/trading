@@ -87,6 +87,25 @@ STRATEGIES = [
                    "max_spread_bps": 50, "qty": 1.0},
     },
     {
+        "name": "zscore_reversion",
+        "display_name": "Z-Score Mean Reversion",
+        "tier_required": "Pro",
+        "mode": "wired",
+        "description": "Intraday mean reversion to a rolling mean via z-score, with time filter.",
+        "params": {"lookback": 20, "z_threshold": 2.0, "time_filter_min": 30,
+                   "session_min": 1440, "max_spread_bps": 50, "qty": 1.0},
+    },
+    {
+        "name": "absorption",
+        "display_name": "Absorption Reversal",
+        "tier_required": "Pro",
+        "mode": "wired",
+        "description": "High-volume flat bar signals hidden liquidity absorption; reverses prior trend.",
+        "params": {"lookback": 20, "volume_spike": 2.0, "flat_bps": 5.0,
+                   "trend_lookback": 5, "time_filter_min": 30, "session_min": 1440,
+                   "max_spread_bps": 50, "qty": 1.0},
+    },
+    {
         "name": "ema_trend_cot",
         "display_name": "EMA Trend + COT crowding gate",
         "tier_required": "Pro",
@@ -155,6 +174,16 @@ DEFAULT_QTY = 1.0
 
 
 # ------------------------------------------------------------------ helpers
+def _f(x, default=0.0):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return default
+    if v != v or v in (float("inf"), float("-inf")):
+        return default
+    return v
+
+
 def _qty_of(params):
     try:
         q = float((params or {}).get("qty", DEFAULT_QTY))
@@ -537,6 +566,151 @@ def signal_vwap_mean_reversion(candles, quotes, params, closes=None):
     return _flat(None, "no-extreme", params)
 
 
+def signal_zscore_reversion(candles, quotes, params, closes=None):
+    """Intraday mean reversion to a rolling mean via z-score.
+
+    Enters long when the close is more than `z_threshold` standard
+    deviations below the rolling mean, short when above. Optional time
+    filter skips the first/last `time_filter_min` minutes of the session.
+
+    Parameters (all optional):
+      lookback           rolling window (default 20)
+      z_threshold        entry z-score (default 2.0)
+      time_filter_min    skip first/last N minutes (default 30, 0 disables)
+      session_min        session length in minutes (default 1440)
+      max_spread_bps, qty
+    """
+    params = dict(params or {})
+    def _num(key, default, cast=float):
+        try:
+            return cast(params.get(key, default))
+        except (TypeError, ValueError):
+            return cast(default)
+
+    lookback = _num("lookback", 20, int)
+    z_threshold = _num("z_threshold", 2.0)
+    time_filter_min = _num("time_filter_min", 30, int)
+    session_min = _num("session_min", 1440, int)
+    closes = closes if closes is not None else closes_of(candles)
+    if len(closes) < lookback + 2:
+        return _flat(None, "warming-up", params)
+
+    ok, _spread = _check_spread(quotes, params)
+    if not ok:
+        return _flat(None, "spread-too-wide", params)
+
+    # Time filter.
+    if time_filter_min and time_filter_min > 0 and candles:
+        ts = None
+        last = candles[-1]
+        if isinstance(last, dict):
+            ts = last.get("ts", last.get("time"))
+        try:
+            from utils.result import in_session_window
+        except ImportError:  # pragma: no cover - direct-path execution
+            from result import in_session_window
+        if not in_session_window(ts, session_min=session_min, skip_min=time_filter_min):
+            return _flat(None, "outside-session-window", params)
+
+    try:
+        from engines.indicators import zscore
+    except ImportError:  # pragma: no cover - direct-path execution
+        from indicators import zscore
+
+    zs = zscore(closes, lookback=lookback)
+    z = zs[-1] if zs else 0.0
+
+    if z <= -z_threshold:
+        return _emit("buy", "zscore-mr-long", params)
+    if z >= z_threshold:
+        return _emit("sell", "zscore-mr-short", params)
+    return _flat(None, "no-extreme", params)
+
+
+def signal_absorption(candles, quotes, params, closes=None):
+    """Absorption reversal: high volume on a flat bar signals hidden liquidity.
+
+    Fires when the last bar's volume is at least `volume_spike` times the
+    rolling average AND the bar's range is within `flat_bps` basis points,
+    indicating that aggressive flow was absorbed. Direction is the reverse
+    of the prior `trend_lookback`-bar trend (absorbed buyers -> short,
+    absorbed sellers -> long).
+
+    Parameters (all optional):
+      lookback          rolling window for volume average (default 20)
+      volume_spike      volume multiple to qualify (default 2.0)
+      flat_bps          max bar range in bps to qualify (default 5)
+      trend_lookback    bars for prior trend (default 5)
+      time_filter_min   skip first/last N minutes (default 30, 0 disables)
+      session_min, max_spread_bps, qty
+    """
+    params = dict(params or {})
+    def _num(key, default, cast=float):
+        try:
+            return cast(params.get(key, default))
+        except (TypeError, ValueError):
+            return cast(default)
+
+    lookback = _num("lookback", 20, int)
+    volume_spike = _num("volume_spike", 2.0)
+    flat_bps = _num("flat_bps", 5.0)
+    trend_lookback = _num("trend_lookback", 5, int)
+    time_filter_min = _num("time_filter_min", 30, int)
+    session_min = _num("session_min", 1440, int)
+    closes = closes if closes is not None else closes_of(candles)
+    if len(closes) < max(lookback, trend_lookback) + 2:
+        return _flat(None, "warming-up", params)
+
+    ok, _spread = _check_spread(quotes, params)
+    if not ok:
+        return _flat(None, "spread-too-wide", params)
+
+    if time_filter_min and time_filter_min > 0 and candles:
+        ts = None
+        last = candles[-1]
+        if isinstance(last, dict):
+            ts = last.get("ts", last.get("time"))
+        try:
+            from utils.result import in_session_window
+        except ImportError:  # pragma: no cover - direct-path execution
+            from result import in_session_window
+        if not in_session_window(ts, session_min=session_min, skip_min=time_filter_min):
+            return _flat(None, "outside-session-window", params)
+
+    # Volume average over lookback (excluding current bar).
+    vols = []
+    for c in candles[-lookback - 1:-1]:
+        try:
+            vols.append(float(c.get("v", c.get("volume", 0)) if isinstance(c, dict) else 0))
+        except (TypeError, ValueError, AttributeError):
+            vols.append(0.0)
+    avg_vol = (sum(vols) / len(vols)) if vols else 0.0
+    last_c = candles[-1]
+    last_vol = 0.0
+    last_high = last_low = last_close = 0.0
+    if isinstance(last_c, dict):
+        last_vol = _f(last_c.get("v", last_c.get("volume", 0)))
+        last_high = _f(last_c.get("h", last_c.get("high", 0)))
+        last_low = _f(last_c.get("l", last_c.get("low", 0)))
+        last_close = _f(last_c.get("c", last_c.get("close", 0)))
+    if avg_vol <= 0 or last_vol < volume_spike * avg_vol:
+        return _flat(None, "no-volume-spike", params)
+    rng_bps = ((last_high - last_low) / last_close * 10000.0) if last_close > 0 else 0.0
+    if rng_bps > flat_bps:
+        return _flat(None, "not-flat", params)
+
+    # Prior trend direction.
+    window = closes[-trend_lookback - 1:-1]
+    trend_up = (window[-1] > window[0]) if len(window) >= 2 else False
+    trend_down = (window[-1] < window[0]) if len(window) >= 2 else False
+
+    if trend_up:
+        return _emit("sell", "absorption-short", params)
+    if trend_down:
+        return _emit("buy", "absorption-long", params)
+    return _flat(None, "no-trend", params)
+
+
 def signal_ema_trend_cot(candles, quotes, params, closes=None, cot=None):
     """EMA 9/21 trend, vetoed by CFTC crowding. `cot` is a pre-built gate.
 
@@ -772,6 +946,8 @@ _DISPATCH = {
     "vwap_bands": signal_vwap_bands,
     "vwap_trend": signal_vwap_trend,
     "vwap_mean_reversion": signal_vwap_mean_reversion,
+    "zscore_reversion": signal_zscore_reversion,
+    "absorption": signal_absorption,
     "manual": manual_signal,
     "dual_ema": signal_dual_ema,
     "mean_reversion": signal_mean_reversion,
