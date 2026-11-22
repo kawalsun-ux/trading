@@ -395,3 +395,70 @@ def trade_sign(price, prev_price, prev_sign=1):
     if price < prev_price:
         return -1
     return prev_sign
+
+
+def ofi_contribution(prev, curr):
+    """Single best-quote OFI contribution (Cont-Kukanov-Stoikov)."""
+    bid_term = (curr.get("bid_size", 0) if curr.get("bid_price", 0) >= prev.get("bid_price", 0) else 0) - (
+        prev.get("bid_size", 0) if curr.get("bid_price", 0) <= prev.get("bid_price", 0) else 0
+    )
+    ask_term = (prev.get("ask_size", 0) if curr.get("ask_price", 0) >= prev.get("ask_price", 0) else 0) - (
+        curr.get("ask_size", 0) if curr.get("ask_price", 0) <= prev.get("ask_price", 0) else 0
+    )
+    return bid_term + ask_term
+
+
+def mlofi(prev_bids, curr_bids, prev_asks, curr_asks, levels=5):
+    """Multi-level OFI: sum of per-level OFI over top `levels`."""
+    total = 0.0
+    for k in range(levels):
+        pb = prev_bids[k] if k < len(prev_bids or []) else None
+        cb = curr_bids[k] if k < len(curr_bids or []) else None
+        pa = prev_asks[k] if k < len(prev_asks or []) else None
+        ca = curr_asks[k] if k < len(curr_asks or []) else None
+        if pb is None or cb is None or pa is None or ca is None:
+            continue
+        # level k OFI
+        bid_term = (cb.get("size", 0) if cb.get("price", 0) >= pb.get("price", 0) else 0) - (
+            pb.get("size", 0) if cb.get("price", 0) <= pb.get("price", 0) else 0
+        )
+        ask_term = (pa.get("size", 0) if ca.get("price", 0) >= pa.get("price", 0) else 0) - (
+            ca.get("size", 0) if ca.get("price", 0) <= pa.get("price", 0) else 0
+        )
+        total += bid_term + ask_term
+    return total
+
+
+def weighted_mid(q):
+    """Imbalance-weighted mid price (micro-price)."""
+    bid = float(q.get("bid_price", q.get("bid", 0)))
+    ask = float(q.get("ask_price", q.get("ask", 0)))
+    bs = float(q.get("bid_size", q.get("bidSize", 0)))
+    as_ = float(q.get("ask_size", q.get("askSize", 0)))
+    total = bs + as_
+    if total <= 0:
+        return (bid + ask) / 2.0
+    return bid * (as_ / total) + ask * (bs / total)
+
+
+def relative_spread_bps(q):
+    """Quoted spread in bps."""
+    bid = float(q.get("bid_price", q.get("bid", 0)))
+    ask = float(q.get("ask_price", q.get("ask", 0)))
+    mid = (bid + ask) / 2.0
+    if mid <= 0:
+        return 0.0
+    return (ask - bid) / mid * 10000.0
+
+
+def order_flow_entropy(counts):
+    """Shannon entropy (bits) of order-flow categories."""
+    total = sum(c for c in (counts or []) if c and c > 0)
+    if total <= 0:
+        return 0.0
+    h = 0.0
+    for c in counts or []:
+        if c and c > 0:
+            p = c / total
+            h -= p * math.log2(p)
+    return h
