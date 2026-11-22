@@ -60,3 +60,64 @@ def rademacher_bound(n_trials, n_obs):
     if n_obs <= 0:
         return 0.0
     return math.sqrt(2.0 * math.log(max(1, n_trials)) / n_obs)
+
+
+def min_track_record_length(sharpe, skew=0.0, kurtosis=0.0, alpha=0.05):
+    """Minimum track record length (in periods) for a Sharpe to be significant.
+
+    Bailey & Lopez de Prado. Returns float periods.
+    """
+    if sharpe is None or sharpe <= 0:
+        return float("inf")
+    # z for (1-alpha)
+    z = 1.645 if alpha == 0.05 else 1.96
+    var_sr = (1.0 + (kurtosis / 4.0)) / 1.0
+    # simplified: T_min = 1 + (z^2 * var_sr) / (sharpe^2) adjusted for skew
+    tmin = 1.0 + (z * z * (1.0 + kurtosis / 4.0)) / (sharpe * sharpe)
+    if skew != 0:
+        tmin *= (1.0 + abs(skew) * 0.5)
+    return tmin
+
+
+def cscv_pbo(returns_matrix):
+    """Probability of Backtest Overfitting via Combinatorially Symmetric CV.
+
+    returns_matrix: list of rows (configs) x cols (periods) of returns.
+    Returns PBO in [0,1] (fraction of configs whose IS-best is below median OOS).
+    Simplified: split periods into 2 halves, find IS best in first half,
+    check its OOS rank in second half.
+    """
+    if not returns_matrix or not returns_matrix[0]:
+        return 0.0
+    n_configs = len(returns_matrix)
+    n_periods = len(returns_matrix[0])
+    if n_configs < 2 or n_periods < 4:
+        return 0.0
+    mid = n_periods // 2
+    # in-sample: first half
+    is_scores = []
+    for c in range(n_configs):
+        r = returns_matrix[c][:mid]
+        is_scores.append(sum(r) / len(r) if r else 0.0)
+    best = max(range(n_configs), key=lambda c: is_scores[c])
+    # out-of-sample: second half ranks
+    oos_scores = []
+    for c in range(n_configs):
+        r = returns_matrix[c][mid:]
+        oos_scores.append(sum(r) / len(r) if r else 0.0)
+    # rank of best config's oos score
+    sorted_oos = sorted(oos_scores)
+    rank = sorted_oos.index(oos_scores[best])  # 0-based
+    # PBO approx: fraction of configs with oos below median
+    median_idx = n_configs // 2
+    below_median = sum(1 for s in oos_scores if s < sorted_oos[median_idx])
+    return below_median / n_configs
+
+
+def probability_backtest_overfitting(pbo):
+    """Alias: PBO is already a probability. Clamp to [0,1]."""
+    try:
+        v = float(pbo)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(1.0, v))

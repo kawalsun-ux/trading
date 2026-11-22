@@ -334,3 +334,64 @@ def regime_tag(candles, lookback=20):
     if lsd <= 0:
         return "unknown"
     return "high" if sd > lsd else "low"
+
+
+def vpin(signed_volumes, bucket_size):
+    """Volume-Synchronized Probability of Informed Trading.
+
+    signed_volumes: list of signed floats (positive=buy, negative=sell) or
+    (volume, side) tuples. bucket_size: volume per bucket.
+    Returns average |buy-sell|/volume across buckets, or None.
+    """
+    sv = []
+    for item in (signed_volumes or []):
+        if isinstance(item, (tuple, list)):
+            v = float(item[0])
+            side = float(item[1]) if len(item) > 1 else 1.0
+            sv.append(v * (1 if side >= 0 else -1))
+        else:
+            sv.append(float(item))
+    if not sv or bucket_size <= 0:
+        return None
+    buckets = []
+    cur_buy = cur_sell = cur_vol = 0.0
+    for s in sv:
+        vol = abs(s)
+        side = 1 if s >= 0 else -1
+        remaining = vol
+        while remaining > 0:
+            space = bucket_size - cur_vol
+            take = min(remaining, space)
+            if side > 0:
+                cur_buy += take
+            else:
+                cur_sell += take
+            cur_vol += take
+            remaining -= take
+            if cur_vol >= bucket_size - 1e-9:
+                total = cur_buy + cur_sell
+                if total > 0:
+                    buckets.append(abs(cur_buy - cur_sell) / total)
+                cur_buy = cur_sell = cur_vol = 0.0
+    if not buckets:
+        return None
+    return sum(buckets) / len(buckets)
+
+
+def info_driven_bar_threshold(volumes, multiplier=1.0):
+    """Suggested threshold for info-driven bars: mean volume * multiplier."""
+    vs = [float(v) for v in (volumes or []) if v is not None]
+    if not vs:
+        return 0.0
+    return (sum(vs) / len(vs)) * float(multiplier)
+
+
+def trade_sign(price, prev_price, prev_sign=1):
+    """Lee-Ready trade sign classification. Returns +1 buy, -1 sell."""
+    if prev_price is None:
+        return prev_sign
+    if price > prev_price:
+        return 1
+    if price < prev_price:
+        return -1
+    return prev_sign
