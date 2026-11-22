@@ -13,8 +13,13 @@ Curated findings from `wilsonfreitas/awesome-quant` relevant to Apex Quant.
 ## Implemented (zero-dep)
 - **VPIN + info-driven bars + trade sign** in `engines/microstructure.py`.
 - **PBO + CSCV + MinTRL** in `utils/metrics.py`.
+- **Bootstrap CI for Sharpe** in `utils/metrics.py`.
 - **Backtest audit toolkit** in `scripts/audit_backtest.py` (ledger conservation, fee double-count, sanity).
 - **Limit-order fill simulator** in `execution/fill_simulator.py`.
+- **Composable stops** (trailing, ATR, chandelier, time) in `risk/stops.py`.
+- **Correlation limits** in `risk/correlation.py`.
+- **Entropy pooling (Esscher tilting)** in `risk/stress.py`.
+- **Tamper-evident hash-chain audit log** in `utils/audit_log.py`.
 
 ## Recommended zero-dep additions (future)
 - CVaR + Entropy Pooling stress (fortitudo.tech) — extends `risk/`.

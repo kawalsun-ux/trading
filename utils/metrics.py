@@ -121,3 +121,32 @@ def probability_backtest_overfitting(pbo):
     except (TypeError, ValueError):
         return 0.0
     return max(0.0, min(1.0, v))
+
+
+def bootstrap_ci_sharpe(returns, n_bootstrap=200, alpha=0.05, seed=None):
+    """Bootstrap confidence interval for Sharpe ratio."""
+    import random
+    if seed is not None:
+        random.seed(seed)
+    rs = [float(x) for x in (returns or [])]
+    if len(rs) < 2:
+        return (0.0, 0.0)
+    def sharpe_of(series):
+        m = sum(series) / len(series)
+        var = sum((x - m) ** 2 for x in series) / len(series)
+        sd = math.sqrt(var) if var > 0 else 0.0
+        if sd <= 0:
+            return 0.0
+        return (m / sd) * math.sqrt(252.0)
+    base = sharpe_of(rs)
+    samples = []
+    n = len(rs)
+    for _ in range(n_bootstrap):
+        sample = [rs[random.randrange(n)] for _ in range(n)]
+        samples.append(sharpe_of(sample))
+    samples.sort()
+    lo_idx = int(alpha / 2 * n_bootstrap)
+    hi_idx = int((1 - alpha / 2) * n_bootstrap) - 1
+    lo_idx = max(0, min(lo_idx, len(samples) - 1))
+    hi_idx = max(0, min(hi_idx, len(samples) - 1))
+    return (samples[lo_idx], samples[hi_idx])

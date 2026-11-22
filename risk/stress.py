@@ -1,3 +1,4 @@
+import math
 """Stress testing helpers (zero-dep, stdlib)."""
 
 import random
@@ -37,3 +38,30 @@ def monte_carlo_stress(returns, n_paths=100, shock=-0.2, seed=None):
             total *= (1.0 + r)
         out.append(total - 1.0)
     return out
+
+
+def entropy_pooling_weights(base_returns, view_mean, n_iter=50):
+    """Exponential tilting (Esscher) to match a view on the mean.
+
+    Returns list of weights (sum ~1) over base_returns such that the
+    weighted mean approximates view_mean. Simplified entropy pooling.
+    """
+    rs = [float(x) for x in (base_returns or [])]
+    if not rs:
+        return []
+    n = len(rs)
+    # find theta such that sum w_i * r_i = view_mean, w_i ~ exp(theta*r_i)/Z
+    theta = 0.0
+    step = 1.0
+    for _ in range(n_iter):
+        # compute weighted mean for current theta
+        ws = [math.exp(theta * r) for r in rs]
+        z = sum(ws)
+        wn = [w / z for w in ws]
+        wmean = sum(w * r for w, r in zip(wn, rs))
+        grad = wmean - float(view_mean)
+        theta -= step * grad
+        step *= 0.95
+    ws = [math.exp(theta * r) for r in rs]
+    z = sum(ws)
+    return [w / z for w in ws]
